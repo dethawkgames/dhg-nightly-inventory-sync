@@ -1,0 +1,38 @@
+name: Nightly Inventory Sync (UD + Garland)
+
+on:
+  schedule:
+    # 11:30 UTC = 7:30am EDT (summer). Shift to 12:30 UTC when clocks
+    # fall back to EST in November.
+    - cron: "30 11 * * *"
+  workflow_dispatch: {} # allows manual "Run workflow" from the Actions tab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run nightly sync
+        run: npm run run-all
+        env:
+          UD_USERNAME: ${{ secrets.UD_USERNAME }}
+          UD_PASSWORD: ${{ secrets.UD_PASSWORD }}
+          ACDD_USERNAME: ${{ secrets.ACDD_USERNAME }}
+          ACDD_PASSWORD: ${{ secrets.ACDD_PASSWORD }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          MASTER_TAB_NAME: ${{ vars.MASTER_TAB_NAME }}

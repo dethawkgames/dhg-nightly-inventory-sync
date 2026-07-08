@@ -1,0 +1,21 @@
+{
+  "name": "dhg-nightly-inventory-sync",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Replaces the 'daily inventory download' + 'update inventory policy' Cowork tasks with a fully unattended nightly job (UD + Garland only — Asmodee stays manual/weekly).",
+  "type": "module",
+  "scripts": {
+    "download": "node src/download.js",
+    "sync-to-sheets": "node src/sync-to-sheets.js",
+    "update-policy": "node src/update-policy.js",
+    "push-to-shopify": "node src/push-to-shopify.js",
+    "run-all": "node src/run-all.js"
+  },
+  "dependencies": {
+    "googleapis": "^140.0.0",
+    "papaparse": "^5.4.1",
+    "playwright": "^1.47.0",
+    "xlsx": "^0.18.5",
+    "node-fetch": "^3.3.2"
+  }
+}
