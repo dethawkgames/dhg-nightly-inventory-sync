@@ -27,10 +27,9 @@ export const config = {
   },
 
   // ── ACDD ────────────────────────────────────────────────────────
+  // No login required — inventory page is publicly reachable.
   acdd: {
     inventoryUrl: "https://www.acdd.com/inventory",
-    username: process.env.ACDD_USERNAME,
-    password: process.env.ACDD_PASSWORD,
   },
 
   // ── Shopify ─────────────────────────────────────────────────────

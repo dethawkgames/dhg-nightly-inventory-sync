@@ -10,7 +10,7 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -29,8 +29,6 @@ jobs:
         env:
           UD_USERNAME: ${{ secrets.UD_USERNAME }}
           UD_PASSWORD: ${{ secrets.UD_PASSWORD }}
-          ACDD_USERNAME: ${{ secrets.ACDD_USERNAME }}
-          ACDD_PASSWORD: ${{ secrets.ACDD_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
           SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}

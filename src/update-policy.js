@@ -44,47 +44,56 @@ export async function updatePolicy() {
   const alliance = await readTab(sheets, config.allianceTab);
   const garland = await readTab(sheets, config.garlandTab);
 
-  const changes = []; // { sku, oldPolicy, newPolicy }
+  // Snapshot BEFORE any mutation — mirrors `original_policy = master[...].copy()`
+  // in update_inventory.py. All rules below apply to the same in-memory rows;
+  // the diff is computed ONCE at the very end, not after each individual rule.
+  // This matters: without it, a row that gets flipped deny→continue across two
+  // rules produces two separate "changes" (and two separate Shopify API calls)
+  // instead of one — which is what happened on the first real run.
+  const originalPolicy = new Map(master.map((row) => [row, row["Variant Inventory Policy"]]));
 
-  // ── Alliance / Universal Dist ────────────────────────────────────
-  // 1. Reset all alliance-tagged products to "deny"
-  // 2. Match Vendor Item No. → Variant SKU; RDL=Yes → "continue", RDL=No → "deny"
-  const allianceByVendorItemNo = indexBy(alliance, "Vendor Item No.");
-
+  // ── Alliance / Universal Dist — Step 1: blanket-set alliance-tagged to "deny"
   for (const row of master) {
     const tags = (row["Tags"] || "").toLowerCase();
-    if (!tags.includes("alliance")) continue;
-
-    const sku = (row["Variant SKU"] || "").trim();
-    const oldPolicy = row["Variant Inventory Policy"];
-
-    const supplierRow = allianceByVendorItemNo.get(sku);
-    const newPolicy = supplierRow && (supplierRow["RDL"] || "").trim().toLowerCase() === "yes"
-      ? "continue"
-      : "deny";
-
-    if (newPolicy !== oldPolicy) {
-      changes.push({ sku, oldPolicy, newPolicy, source: "alliance" });
-      row["Variant Inventory Policy"] = newPolicy;
+    if (tags.includes("alliance")) {
+      row["Variant Inventory Policy"] = "deny";
     }
   }
 
-  // ── Garland ───────────────────────────────────────────────────────
-  // Match ItemID → ACDD SKU; GARLAND=Yes → "continue"
+  // ── Alliance / Universal Dist — Step 2: RDL correction across ALL rows
+  // (no tag filter — matches original Python exactly)
+  const allianceByVendorItemNo = indexBy(alliance, "Vendor Item No.");
+  for (const row of master) {
+    const sku = (row["Variant SKU"] || "").trim();
+    const supplierRow = allianceByVendorItemNo.get(sku);
+    if (!supplierRow) continue; // no match → leave untouched, same as original
+
+    const rdl = (supplierRow["RDL"] || "").trim();
+    if (rdl === "Yes") row["Variant Inventory Policy"] = "continue";
+    else if (rdl === "No") row["Variant Inventory Policy"] = "deny";
+  }
+
+  // ── Garland — runs after Alliance, can override its result for matched SKUs
   const garlandYesIds = new Set(
     garland
       .filter((r) => (r["GARLAND"] || "").trim().toLowerCase() === "yes")
       .map((r) => (r["ItemID"] || "").trim())
   );
-
   for (const row of master) {
     const acddSku = (row["ACDD SKU"] || "").trim();
-    if (!garlandYesIds.has(acddSku)) continue;
-
-    const oldPolicy = row["Variant Inventory Policy"];
-    if (oldPolicy !== "continue") {
-      changes.push({ sku: row["Variant SKU"], oldPolicy, newPolicy: "continue", source: "garland" });
+    if (garlandYesIds.has(acddSku)) {
       row["Variant Inventory Policy"] = "continue";
+    }
+  }
+
+  // ── Single before/after diff, one entry per row — this is what actually
+  // gets pushed to Shopify, so each SKU is touched at most once per run.
+  const changes = [];
+  for (const row of master) {
+    const before = originalPolicy.get(row);
+    const after = row["Variant Inventory Policy"];
+    if (after !== before) {
+      changes.push({ sku: row["Variant SKU"], oldPolicy: before, newPolicy: after });
     }
   }
 

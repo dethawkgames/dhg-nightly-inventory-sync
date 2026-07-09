@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { downloadAll } from "./download.js";
 import { syncToSheets } from "./sync-to-sheets.js";
 import { updatePolicy } from "./update-policy.js";

@@ -18,10 +18,15 @@ function parseCsv(filePath) {
   return data;
 }
 
-function parseXlsx(filePath) {
+function parseXlsx(filePath, headerRowIndex = 0) {
   const workbook = XLSX.readFile(filePath);
   const sheetName = workbook.SheetNames[0];
-  return XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
+  // headerRowIndex mirrors pandas' `header=N` — Garland's real headers
+  // start on the 3rd row (index 2), matching the original Python script.
+  return XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+    defval: "",
+    range: headerRowIndex,
+  });
 }
 
 // Convert an array of row objects into a 2D array (header row + data rows)
@@ -56,7 +61,7 @@ export async function syncToSheets({ udPath, garlandPath }) {
   const sheets = google.sheets({ version: "v4", auth });
 
   const udRows = parseCsv(udPath);
-  const garlandRows = parseXlsx(garlandPath);
+  const garlandRows = parseXlsx(garlandPath, 2); // header=2, matches update_inventory.py
 
   await writeTab(sheets, config.allianceTab, toGrid(udRows));
   await writeTab(sheets, config.garlandTab, toGrid(garlandRows));

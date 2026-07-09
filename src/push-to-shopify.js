@@ -17,7 +17,9 @@ async function getAccessToken() {
   return data.access_token;
 }
 
-async function graphql(token, query, variables) {
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function graphql(token, query, variables, attempt = 1) {
   const url = `https://${config.shopify.shopDomain}/admin/api/${config.shopify.apiVersion}/graphql.json`;
   const res = await fetch(url, {
     method: "POST",
@@ -27,7 +29,29 @@ async function graphql(token, query, variables) {
     },
     body: JSON.stringify({ query, variables }),
   });
+
+  // Shopify uses a leaky-bucket cost budget. A 429, or a GraphQL-level
+  // THROTTLED error even on a 200 response, both mean "back off and retry" —
+  // this loop was previously missing entirely, so every throttle event was
+  // treated as a hard failure.
+  if (res.status === 429) {
+    if (attempt > 5) throw new Error("Shopify rate limit: exhausted retries");
+    const retryAfter = Number(res.headers.get("retry-after")) || 2 ** attempt;
+    await delay(retryAfter * 1000);
+    return graphql(token, query, variables, attempt + 1);
+  }
+
   const json = await res.json();
+
+  const throttled = json.errors?.some(
+    (e) => e.extensions?.code === "THROTTLED" || /throttled/i.test(e.message || "")
+  );
+  if (throttled) {
+    if (attempt > 5) throw new Error("Shopify GraphQL throttled: exhausted retries");
+    await delay(1000 * attempt);
+    return graphql(token, query, variables, attempt + 1);
+  }
+
   if (json.errors) throw new Error(JSON.stringify(json.errors));
   return json.data;
 }
@@ -74,18 +98,27 @@ export async function pushToShopify(changes) {
   const succeeded = [];
   const failed = [];
 
-  for (const change of changes) {
+  for (let i = 0; i < changes.length; i++) {
+    const change = changes[i];
     try {
       const variant = await findVariantBySku(token, change.sku);
       if (!variant) {
         failed.push({ ...change, reason: "SKU not found in Shopify" });
-        continue;
+      } else {
+        await updateVariantPolicy(token, variant.product.id, variant.id, change.newPolicy);
+        succeeded.push(change);
       }
-      await updateVariantPolicy(token, variant.product.id, variant.id, change.newPolicy);
-      succeeded.push(change);
     } catch (err) {
       failed.push({ ...change, reason: err.message });
     }
+
+    if ((i + 1) % 100 === 0) {
+      console.log(`  ...${i + 1}/${changes.length} processed (${succeeded.length} ok, ${failed.length} failed)`);
+    }
+
+    // Small pacing delay to stay under Shopify's cost-based rate limit
+    // rather than relying entirely on reactive retries.
+    await delay(150);
   }
 
   console.log(`Shopify push: ${succeeded.length} succeeded, ${failed.length} failed`);

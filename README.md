@@ -14,18 +14,13 @@ load the master product list from Google Sheets. Set it as a repo variable:
 
 `Settings → Secrets and variables → Actions → Variables → MASTER_TAB_NAME`
 
-### 2. Nail down the real browser selectors
-The login/click-path in `src/download.js` is a best-effort placeholder.
-Run these locally once to get exact, working selectors:
-
-```bash
-npx playwright codegen https://us.universaldist.com/home
-npx playwright codegen https://www.acdd.com/inventory
-```
-
-Playwright will open a browser, record every click as you do it manually,
-and print the real selector code. Swap those in for the `// TODO` blocks
-in `src/download.js`.
+### 2. Selectors are confirmed
+Both UD (login + export) and ACDD (Garland row Excel link) selectors in
+`src/download.js` were confirmed with `playwright codegen`. One caveat:
+the Garland link is matched positionally (3rd "Excel" link on the page),
+since ACDD's markup doesn't cleanly associate the link with row text. If
+ACDD ever reorders their inventory table, this could grab the wrong
+warehouse's file — worth a periodic spot-check.
 
 ### 3. Add repo secrets
 `Settings → Secrets and variables → Actions → New repository secret`:
@@ -33,7 +28,6 @@ in `src/download.js`.
 | Secret | Value |
 |---|---|
 | `UD_USERNAME` / `UD_PASSWORD` | Universal Distribution login |
-| `ACDD_USERNAME` / `ACDD_PASSWORD` | ACDD login |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | The same service account JSON your other Sheets scripts use, as one line |
 | `SHOPIFY_CLIENT_ID` / `SHOPIFY_CLIENT_SECRET` | From the "DHG Automation" custom app in the Shopify Dev Dashboard |
 | `RESEND_API_KEY` | Same key your other notification emails use |

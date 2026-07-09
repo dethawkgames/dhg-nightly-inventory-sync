@@ -4,15 +4,10 @@ import path from "path";
 import { config } from "./config.js";
 
 /**
- * IMPORTANT — selectors below are best-effort placeholders.
- * Before the first real run, record the exact click-path with:
- *
- *   npx playwright codegen https://us.universaldist.com/home
- *   npx playwright codegen https://www.acdd.com/inventory
- *
- * and paste in the real selectors it generates. Codegen will give you
- * exact, working selectors in about 2 minutes — much more reliable
- * than guessing from the outside.
+ * Both flows below are confirmed via playwright codegen:
+ * - UD requires login, then Account → Export Inventory → CSV
+ * - ACDD needs no login; the Garland, TX row is the 3rd "Excel" link
+ *   on the page (positional — see caveat comment in downloadGarland)
  */
 
 async function ensureDownloadDir() {
@@ -25,24 +20,24 @@ async function downloadUD(browser) {
 
   await page.goto(config.ud.loginUrl, { waitUntil: "networkidle" });
 
-  // TODO: confirm these selectors with playwright codegen
+  // Selectors confirmed via playwright codegen
   await page.getByRole('link').filter({ hasText: 'Account' }).click();
   await page.getByRole('link', { name: 'Login' }).click();
   await page.getByRole('textbox', { name: 'Email Address' }).click();
-  await page.getByRole('textbox', { name: 'Email Address' }).fill('iain@detectivehawkgames.com');
-  await page.getByRole('textbox', { name: 'password' }).click();
-  await page.getByRole('textbox', { name: 'password' }).fill('Pineapples345!');
+  await page.getByRole('textbox', { name: 'Email Address' }).fill(config.ud.username);
+  await page.getByRole('textbox', { name: 'Email Address' }).press('Tab');
+  await page.getByRole('textbox', { name: 'password' }).fill(config.ud.password);
   await page.getByRole('button', { name: 'Login' }).click();
   await page.waitForLoadState("networkidle");
- 
 
-  // Profile menu (labeled "DETECTIVE HAWK...") → Export Inventory → CSV
-  await page.click('text=/DETECTIVE HAWK/i');
-  await page.click("text=Export Inventory");
+  // Profile menu (labeled "DETECTIVE HAWK GAMES") → Export Inventory → CSV
+  // Selectors confirmed via playwright codegen
+  await page.getByRole('link').filter({ hasText: 'DETECTIVE HAWK GAMES' }).click();
+  await page.getByRole('link', { name: 'Export Inventory' }).click();
 
   const [download] = await Promise.all([
     page.waitForEvent("download"),
-    page.click('text=/CSV \\(\\.csv\\)/i'),
+    page.getByRole('button', { name: 'CSV (.csv)' }).click(),
   ]);
 
   const destPath = path.join(config.downloadDir, "Inventory_Export.csv");
@@ -57,20 +52,20 @@ async function downloadGarland(browser) {
 
   await page.goto(config.acdd.inventoryUrl, { waitUntil: "networkidle" });
 
-  // TODO: confirm selectors — ACDD may show a login form first, or may
-  // already be reachable with a stored session depending on their auth setup
-  if (await page.locator('input[type="email"], input[name="email"]').first().isVisible().catch(() => false)) {
-    await page.fill('input[type="email"], input[name="email"]', config.acdd.username);
-    await page.fill('input[type="password"], input[name="password"]', config.acdd.password);
-    await page.click('button[type="submit"]');
-    await page.waitForLoadState("networkidle");
-  }
-
-  const garlandRow = page.locator('tr:has-text("Garland, TX")');
-  const [download] = await Promise.all([
+  // Confirmed via playwright codegen: the Garland, TX row's Excel link is
+  // the 3rd "Excel" link on the page (nth(2), zero-indexed), and clicking
+  // it fires both a popup and a download event.
+  //
+  // CAVEAT: this is positional, not matched by row text. If ACDD ever
+  // reorders the inventory table, this will silently grab the wrong
+  // warehouse's file. Worth spot-checking occasionally, or tightening
+  // to a row-scoped locator if ACDD's markup allows it.
+  const [popup, download] = await Promise.all([
+    page.waitForEvent("popup"),
     page.waitForEvent("download"),
-    garlandRow.locator("text=Excel").click(),
+    page.getByRole("link", { name: "Excel" }).nth(2).click(),
   ]);
+  await popup.close();
 
   const destPath = path.join(config.downloadDir, "garland-inventory.xlsx");
   await download.saveAs(destPath);

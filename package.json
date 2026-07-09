@@ -12,6 +12,7 @@
     "run-all": "node src/run-all.js"
   },
   "dependencies": {
+    "dotenv": "^16.4.5",
     "googleapis": "^140.0.0",
     "papaparse": "^5.4.1",
     "playwright": "^1.47.0",
