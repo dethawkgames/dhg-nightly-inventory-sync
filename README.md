@@ -2,9 +2,14 @@
 
 Replaces the "daily inventory download" and "update inventory policy" Cowork
 tasks with one unattended GitHub Actions job. Only touches Universal
-Distribution ("Alliance" tab) and Garland/ACDD. **Asmodee and In Stock are
-intentionally excluded** — both stay on the existing weekly manual review
-flow, unchanged.
+Distribution ("Alliance" tab) and Garland/ACDD.
+
+**Asmodee is intentionally excluded from this pipeline.** It runs on a
+separate weekly process: Iain uploads the Asmodee Inventory Report and
+In Stock Report to a Claude chat, which applies the decision logic
+documented in the `asmodee-inventory-policy` skill and pushes changes to
+Shopify after a manual review/confirm step. Do not add Asmodee handling
+here — if the logic needs to change, update the skill instead.
 
 ## One-time setup
 
