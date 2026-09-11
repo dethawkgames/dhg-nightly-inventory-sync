@@ -9,7 +9,8 @@
     "sync-to-sheets": "node src/sync-to-sheets.js",
     "update-policy": "node src/update-policy.js",
     "push-to-shopify": "node src/push-to-shopify.js",
-    "run-all": "node src/run-all.js"
+    "run-all": "node src/run-all.js",
+    "run-asmodee": "node src/run-asmodee.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
