@@ -3,7 +3,7 @@ import { getAccessToken } from "./push-to-shopify.js";
 import { fetchB2CAvailability } from "./asmodee-b2c.js";
 import { fetchAsmodeeCatalog } from "./asmodee-shopify-catalog.js";
 import { fetchGarlandSkus, computeAsmodeeTargets, applyAsmodeeChanges } from "./asmodee-policy.js";
-import { findAtRiskOrders } from "./asmodee-orders-check.js";
+import { findAtRiskOrders, fetchLockedOrderSkus } from "./asmodee-orders-check.js";
 import { notifyAsmodeeRunResult } from "./notify.js";
 
 const DRY_RUN = (process.env.DRY_RUN || "true").trim().toLowerCase() !== "false";
@@ -35,7 +35,12 @@ async function main() {
 
     const flippedToDeny = applied.filter((c) => c.targetPolicy === "DENY" && c.reason === "b2c-availability");
     console.log(`Step 6: checking at-risk orders for ${flippedToDeny.length} newly-DENY SKUs`);
-    const atRisk = flippedToDeny.length > 0 ? await findAtRiskOrders(token, flippedToDeny) : [];
+    let atRisk = [];
+    if (flippedToDeny.length > 0) {
+      const lockedOrderSkus = await fetchLockedOrderSkus();
+      console.log(`  ${lockedOrderSkus.size} (order, SKU) pairs already locked into a supplier order`);
+      atRisk = await findAtRiskOrders(token, flippedToDeny, lockedOrderSkus);
+    }
 
     console.log("Step 7: sending digest (if there's anything to report)");
     await notifyAsmodeeRunResult({ applied, failed, atRisk, dryRun: DRY_RUN });

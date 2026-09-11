@@ -9,6 +9,14 @@ export const config = {
   allianceTab: "Alliance",
   garlandTab: "Garland",
 
+  // ── Order Fulfillment Tracker (separate spreadsheet) ─────────────────
+  // Used by the Asmodee at-risk-order check to exclude orders already
+  // locked into a supplier order (e.g. Monday's 9am Asmodee order) —
+  // presence of an (Order Name, SKU) pair here means that specific unit
+  // is already being handled, so it shouldn't be re-flagged as at-risk.
+  orderFulfillmentSpreadsheetId: "1rsUU7qZJZGhivsofBiFPa7FK6qnHosrxps10NYzLxAE",
+  orderNeedsTab: "Order Needs",
+
   // TODO (confirm before first run): the tab name for the master product
   // list that has the "Variant Inventory Policy" / "Variant SKU" / "Tags"
   // columns. update_inventory.py loaded this via WORKSHEET_NAME — copy
