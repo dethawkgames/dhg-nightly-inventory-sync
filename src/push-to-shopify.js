@@ -1,7 +1,7 @@
 import fetch from "node-fetch";
 import { config } from "./config.js";
 
-async function getAccessToken() {
+export async function getAccessToken() {
   const url = `https://${config.shopify.shopDomain}/admin/oauth/access_token`;
   const params = new URLSearchParams({
     grant_type: "client_credentials",
@@ -19,7 +19,7 @@ async function getAccessToken() {
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function graphql(token, query, variables, attempt = 1) {
+export async function graphql(token, query, variables, attempt = 1) {
   const url = `https://${config.shopify.shopDomain}/admin/api/${config.shopify.apiVersion}/graphql.json`;
   const res = await fetch(url, {
     method: "POST",
@@ -69,7 +69,7 @@ async function findVariantBySku(token, sku) {
   return edge ? edge.node : null;
 }
 
-async function updateVariantPolicy(token, productId, variantId, inventoryPolicy) {
+export async function updateVariantPolicy(token, productId, variantId, inventoryPolicy) {
   const mutation = `
     mutation UpdatePolicy($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
       productVariantsBulkUpdate(productId: $productId, variants: $variants) {
