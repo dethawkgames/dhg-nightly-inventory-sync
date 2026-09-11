@@ -29,5 +29,5 @@ jobs:
           SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
           SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          DRY_RUN: "true" # flip to "false" once you trust the digest output
+          DRY_RUN: "false" # live writes enabled
         run: npm run run-asmodee
