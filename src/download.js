@@ -14,11 +14,45 @@ async function ensureDownloadDir() {
   await fs.promises.mkdir(config.downloadDir, { recursive: true });
 }
 
+/**
+ * page.goto with retries.
+ *
+ * "networkidle" was causing false timeouts: it requires 500ms with zero
+ * in-flight network requests, which some sites (chat widgets, analytics
+ * beacons, polling scripts) never actually reach. We wait for
+ * "domcontentloaded" instead, which fires as soon as the DOM is ready —
+ * the subsequent getByRole()/click() calls already auto-wait for their
+ * target elements to be present and actionable, so we don't need the
+ * page to go fully network-quiet first.
+ *
+ * We still retry a couple of times with backoff in case UD's site is
+ * just slow to respond on a given night.
+ */
+async function gotoWithRetry(page, url, { retries = 2, timeout = 45000 } = {}) {
+  let lastErr;
+  for (let attempt = 1; attempt <= retries + 1; attempt++) {
+    try {
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout });
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (attempt <= retries) {
+        const backoffMs = 5000 * attempt;
+        console.warn(
+          `goto ${url} failed (attempt ${attempt}/${retries + 1}): ${err.message}. Retrying in ${backoffMs}ms...`
+        );
+        await page.waitForTimeout(backoffMs);
+      }
+    }
+  }
+  throw lastErr;
+}
+
 async function downloadUD(browser) {
   const context = await browser.newContext({ acceptDownloads: true });
   const page = await context.newPage();
 
-  await page.goto(config.ud.loginUrl, { waitUntil: "networkidle" });
+  await gotoWithRetry(page, config.ud.loginUrl);
 
   // Selectors confirmed via playwright codegen
   await page.getByRole('link').filter({ hasText: 'Account' }).click();
@@ -28,7 +62,9 @@ async function downloadUD(browser) {
   await page.getByRole('textbox', { name: 'Email Address' }).press('Tab');
   await page.getByRole('textbox', { name: 'password' }).fill(config.ud.password);
   await page.getByRole('button', { name: 'Login' }).click();
-  await page.waitForLoadState("networkidle");
+  // Wait for the post-login profile link itself rather than for the network
+  // to go fully idle — same flakiness reasoning as gotoWithRetry above.
+  await page.getByRole('link').filter({ hasText: 'DETECTIVE HAWK GAMES' }).waitFor({ timeout: 45000 });
 
   // Profile menu (labeled "DETECTIVE HAWK GAMES") → Export Inventory → CSV
   // Selectors confirmed via playwright codegen
@@ -50,7 +86,7 @@ async function downloadGarland(browser) {
   const context = await browser.newContext({ acceptDownloads: true });
   const page = await context.newPage();
 
-  await page.goto(config.acdd.inventoryUrl, { waitUntil: "networkidle" });
+  await gotoWithRetry(page, config.acdd.inventoryUrl);
 
   // Confirmed via playwright codegen: the Garland, TX row's Excel link is
   // the 3rd "Excel" link on the page (nth(2), zero-indexed), and clicking
