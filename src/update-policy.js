@@ -52,11 +52,16 @@ export async function updatePolicy() {
   // instead of one — which is what happened on the first real run.
   const originalPolicy = new Map(master.map((row) => [row, row["Variant Inventory Policy"]]));
 
+  // Which supplier rule last decided each row's final policy. Used only to
+  // label changes in the digest email (previously undefined).
+  const source = new Map();
+
   // ── Alliance / Universal Dist — Step 1: blanket-set alliance-tagged to "deny"
   for (const row of master) {
     const tags = (row["Tags"] || "").toLowerCase();
     if (tags.includes("alliance")) {
       row["Variant Inventory Policy"] = "deny";
+      source.set(row, "Alliance");
     }
   }
 
@@ -69,8 +74,13 @@ export async function updatePolicy() {
     if (!supplierRow) continue; // no match → leave untouched, same as original
 
     const rdl = (supplierRow["RDL"] || "").trim();
-    if (rdl === "Yes") row["Variant Inventory Policy"] = "continue";
-    else if (rdl === "No") row["Variant Inventory Policy"] = "deny";
+    if (rdl === "Yes") {
+      row["Variant Inventory Policy"] = "continue";
+      source.set(row, "Alliance");
+    } else if (rdl === "No") {
+      row["Variant Inventory Policy"] = "deny";
+      source.set(row, "Alliance");
+    }
   }
 
   // ── Garland — runs after Alliance, can override its result for matched SKUs
@@ -82,6 +92,9 @@ export async function updatePolicy() {
   for (const row of master) {
     const acddSku = (row["ACDD SKU"] || "").trim();
     if (garlandYesIds.has(acddSku)) {
+      // Only credit Garland when it actually overrides something; if the row
+      // was already "continue" from Alliance, Alliance keeps the credit.
+      if (row["Variant Inventory Policy"] !== "continue") source.set(row, "Garland");
       row["Variant Inventory Policy"] = "continue";
     }
   }
@@ -93,7 +106,7 @@ export async function updatePolicy() {
     const before = originalPolicy.get(row);
     const after = row["Variant Inventory Policy"];
     if (after !== before) {
-      changes.push({ sku: row["Variant SKU"], oldPolicy: before, newPolicy: after });
+      changes.push({ sku: row["Variant SKU"], oldPolicy: before, newPolicy: after, source: source.get(row) || "Unknown" });
     }
   }
 

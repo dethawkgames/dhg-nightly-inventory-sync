@@ -87,7 +87,7 @@ export async function findAtRiskOrders(token, flippedToDeny, lockedOrderSkus = n
           customer: order.customer ? order.customer.displayName : "(no customer)",
           createdAt: order.createdAt,
           sku,
-          title: change.title,
+          title: change.title || matching[0].title,
           qty: matching.reduce((sum, li) => sum + li.fulfillableQuantity, 0),
         });
       }

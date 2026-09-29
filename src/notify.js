@@ -39,7 +39,19 @@ async function sendEmail({ subject, html }) {
   }
 }
 
-export async function notifyRunResult({ udRowCount, garlandRowCount, changes, shopifyResult, error }) {
+// Shared by the UD+Garland and Asmodee digests so the copy stays identical.
+function renderAtRiskHtml(atRisk) {
+  if (!atRisk || atRisk.length === 0) return "";
+  return `
+      <h3 style="color:#b00;">⚠ At-risk orders (item just went unsellable, order still open)</h3>
+      <table border="1" cellpadding="6" cellspacing="0">
+        <tr><th>Order</th><th>Customer</th><th>SKU</th><th>Product</th><th>Qty</th></tr>
+        ${atRisk.map((r) => `<tr><td>${r.orderName}</td><td>${r.customer}</td><td>${r.sku}</td><td>${r.title}</td><td>${r.qty}</td></tr>`).join("")}
+      </table>
+    `;
+}
+
+export async function notifyRunResult({ udRowCount, garlandRowCount, changes, shopifyResult, atRisk = [], atRiskError, error }) {
   if (error) {
     await sendEmail({
       subject: "⚠️ Nightly inventory sync failed",
@@ -49,9 +61,17 @@ export async function notifyRunResult({ udRowCount, garlandRowCount, changes, sh
   }
 
   const failedRows = shopifyResult.failed;
-  const subject = failedRows.length > 0
+  const baseSubject = failedRows.length > 0
     ? `Nightly inventory sync: ${changes.length} changed, ${failedRows.length} need review`
     : `Nightly inventory sync: ${changes.length} changed, all pushed OK`;
+  const subject = atRisk.length > 0
+    ? `${baseSubject}, ${atRisk.length} at-risk order(s)`
+    : baseSubject;
+
+  const atRiskHtml = renderAtRiskHtml(atRisk);
+  const atRiskErrorHtml = atRiskError
+    ? `<p style="color:#b00;">At-risk order check failed: ${String(atRiskError.message || atRiskError)}</p>`
+    : "";
 
   const rowsHtml = changes
     .map((c) => `<li>${c.sku} (${c.source}): ${c.oldPolicy || "—"} → ${c.newPolicy}</li>`)
@@ -67,6 +87,8 @@ export async function notifyRunResult({ udRowCount, garlandRowCount, changes, sh
     subject,
     html: `
       <p>UD rows synced: ${udRowCount} · Garland rows synced: ${garlandRowCount}</p>
+      ${atRiskHtml}
+      ${atRiskErrorHtml}
       <h3>Policy changes (${changes.length})</h3>
       <ul>${rowsHtml || "<li>None</li>"}</ul>
       ${failedHtml}
@@ -101,15 +123,7 @@ export async function notifyAsmodeeRunResult({ applied = [], failed = [], atRisk
   const subject = `${prefix}Asmodee nightly sync: ${toContinue.length} to CONTINUE, ` +
     `${toDeny.length} to DENY${atRisk.length ? `, ${atRisk.length} at-risk order(s)` : ""}`;
 
-  const atRiskHtml = atRisk.length > 0
-    ? `
-      <h3 style="color:#b00;">⚠ At-risk orders (item just went unsellable, order still open)</h3>
-      <table border="1" cellpadding="6" cellspacing="0">
-        <tr><th>Order</th><th>Customer</th><th>SKU</th><th>Product</th><th>Qty</th></tr>
-        ${atRisk.map((r) => `<tr><td>${r.orderName}</td><td>${r.customer}</td><td>${r.sku}</td><td>${r.title}</td><td>${r.qty}</td></tr>`).join("")}
-      </table>
-    `
-    : "";
+  const atRiskHtml = renderAtRiskHtml(atRisk);
 
   const denyHtml = toDeny.length > 0
     ? `<h3>Flipped to DENY</h3><ul>${toDeny.map((c) => `<li>${c.sku} — ${c.title}</li>`).join("")}</ul>`
