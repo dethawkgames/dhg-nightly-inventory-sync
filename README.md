@@ -62,6 +62,10 @@ schedule file) before letting it run unattended overnight.
 - `src/push-to-shopify.js` — gets a fresh Admin API token via client
   credentials grant, pushes only the changed variants
 - `src/notify.js` — emails a summary (changes + anything that needs manual review)
+- `src/asmodee-orders-check.js` — Shopify order lookups for the digests: at-risk orders
+  (SKU just went DENY) and open orders now sellable (SKU just flipped DENY → CONTINUE and
+  the order is not cancelled, shipped or refunded, and the unit isn't already in Order Needs). Both pipelines call it; results go in
+  the existing digest email, no separate email.
 - `src/run-all.js` — runs all four in order, notifies on success or failure
 
 ## Seasonal note

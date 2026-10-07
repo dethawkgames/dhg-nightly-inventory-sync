@@ -51,7 +51,50 @@ function renderAtRiskHtml(atRisk) {
     `;
 }
 
-export async function notifyRunResult({ udRowCount, garlandRowCount, changes, shopifyResult, atRisk = [], atRiskError, error }) {
+function esc(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// Orders that are still open (not shipped, not refunded) for SKUs that just
+// flipped DENY -> CONTINUE. Shared by the UD+Garland and Asmodee digests.
+function renderAwaitingOrdersHtml(awaitingOrders, awaitingOrdersError, awaitingOrdersWarning) {
+  const errorHtml = awaitingOrdersError
+    ? `<p style="color:#b00;">Open-order check for newly-CONTINUE SKUs failed: ${esc(awaitingOrdersError.message || awaitingOrdersError)}</p>`
+    : "";
+  if (!awaitingOrders || awaitingOrders.length === 0) return errorHtml;
+
+  // Shown only alongside a list: e.g. Order Needs couldn't be read, so the
+  // "already ordered" exclusion wasn't applied and the list is unfiltered.
+  const warningHtml = awaitingOrdersWarning
+    ? `<p style="color:#b60;"><b>Note:</b> ${esc(awaitingOrdersWarning)}</p>`
+    : "";
+
+  const storeHandle = config.shopify.shopDomain.replace(".myshopify.com", "");
+  const rows = awaitingOrders
+    .map((r) => {
+      const orderCell = r.orderId
+        ? `<a href="https://admin.shopify.com/store/${storeHandle}/orders/${esc(r.orderId)}">${esc(r.orderName)}</a>`
+        : esc(r.orderName);
+      const date = r.createdAt ? esc(String(r.createdAt).slice(0, 10)) : "";
+      return `<tr><td>${orderCell}</td><td>${date}</td><td>${esc(r.customer)}</td><td>${esc(r.sku)}</td><td>${esc(r.title)}</td><td>${esc(r.qty)}</td></tr>`;
+    })
+    .join("");
+
+  return `
+      <h3 style="color:#070;">&#10003; Open orders now sellable (flipped DENY &rarr; CONTINUE, not yet shipped or refunded)</h3>
+      <table border="1" cellpadding="6" cellspacing="0">
+        <tr><th>Order</th><th>Placed</th><th>Customer</th><th>SKU</th><th>Product</th><th>Qty owed</th></tr>
+        ${rows}
+      </table>
+      ${warningHtml}
+      ${errorHtml}
+    `;
+}
+
+export async function notifyRunResult({ udRowCount, garlandRowCount, changes, shopifyResult, atRisk = [], atRiskError, awaitingOrders = [], awaitingOrdersError, awaitingOrdersWarning, error }) {
   if (error) {
     await sendEmail({
       subject: "⚠️ Nightly inventory sync failed",
@@ -64,14 +107,19 @@ export async function notifyRunResult({ udRowCount, garlandRowCount, changes, sh
   const baseSubject = failedRows.length > 0
     ? `Nightly inventory sync: ${changes.length} changed, ${failedRows.length} need review`
     : `Nightly inventory sync: ${changes.length} changed, all pushed OK`;
-  const subject = atRisk.length > 0
+  let subject = atRisk.length > 0
     ? `${baseSubject}, ${atRisk.length} at-risk order(s)`
     : baseSubject;
+  if (awaitingOrders.length > 0) {
+    subject += `, ${awaitingOrders.length} open order line(s) now sellable`;
+  }
 
   const atRiskHtml = renderAtRiskHtml(atRisk);
   const atRiskErrorHtml = atRiskError
     ? `<p style="color:#b00;">At-risk order check failed: ${String(atRiskError.message || atRiskError)}</p>`
     : "";
+
+  const awaitingHtml = renderAwaitingOrdersHtml(awaitingOrders, awaitingOrdersError, awaitingOrdersWarning);
 
   const rowsHtml = changes
     .map((c) => `<li>${c.sku} (${c.source}): ${c.oldPolicy || "—"} → ${c.newPolicy}</li>`)
@@ -89,6 +137,7 @@ export async function notifyRunResult({ udRowCount, garlandRowCount, changes, sh
       <p>UD rows synced: ${udRowCount} · Garland rows synced: ${garlandRowCount}</p>
       ${atRiskHtml}
       ${atRiskErrorHtml}
+      ${awaitingHtml}
       <h3>Policy changes (${changes.length})</h3>
       <ul>${rowsHtml || "<li>None</li>"}</ul>
       ${failedHtml}
@@ -102,7 +151,7 @@ export async function notifyRunResult({ udRowCount, garlandRowCount, changes, sh
 // Separate from notifyRunResult (Alliance/Garland) — different pipeline,
 // different run schedule, sent only when there's something to report (a
 // policy change or an at-risk order), never as a nightly heartbeat.
-export async function notifyAsmodeeRunResult({ applied = [], failed = [], atRisk = [], dryRun = true, error }) {
+export async function notifyAsmodeeRunResult({ applied = [], failed = [], atRisk = [], awaitingOrders = [], awaitingOrdersError, awaitingOrdersWarning, dryRun = true, error }) {
   if (error) {
     await sendEmail({
       subject: "⚠️ Asmodee nightly sync failed",
@@ -111,7 +160,7 @@ export async function notifyAsmodeeRunResult({ applied = [], failed = [], atRisk
     return;
   }
 
-  if (applied.length === 0 && failed.length === 0 && atRisk.length === 0) {
+  if (applied.length === 0 && failed.length === 0 && atRisk.length === 0 && awaitingOrders.length === 0 && !awaitingOrdersError) {
     console.log("Asmodee digest: nothing to report — skipping email.");
     return;
   }
@@ -121,9 +170,11 @@ export async function notifyAsmodeeRunResult({ applied = [], failed = [], atRisk
   const toDeny = applied.filter((c) => c.targetPolicy === "DENY");
 
   const subject = `${prefix}Asmodee nightly sync: ${toContinue.length} to CONTINUE, ` +
-    `${toDeny.length} to DENY${atRisk.length ? `, ${atRisk.length} at-risk order(s)` : ""}`;
+    `${toDeny.length} to DENY${atRisk.length ? `, ${atRisk.length} at-risk order(s)` : ""}` +
+    `${awaitingOrders.length ? `, ${awaitingOrders.length} open order line(s) now sellable` : ""}`;
 
   const atRiskHtml = renderAtRiskHtml(atRisk);
+  const awaitingHtml = renderAwaitingOrdersHtml(awaitingOrders, awaitingOrdersError, awaitingOrdersWarning);
 
   const denyHtml = toDeny.length > 0
     ? `<h3>Flipped to DENY</h3><ul>${toDeny.map((c) => `<li>${c.sku} — ${c.title}</li>`).join("")}</ul>`
@@ -142,6 +193,7 @@ export async function notifyAsmodeeRunResult({ applied = [], failed = [], atRisk
     html: `
       <h2>${prefix}Asmodee Nightly Inventory Sync</h2>
       ${atRiskHtml}
+      ${awaitingHtml}
       ${denyHtml}
       ${continueHtml}
       ${failedHtmlAsmodee}

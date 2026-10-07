@@ -96,3 +96,90 @@ export async function findAtRiskOrders(token, flippedToDeny, lockedOrderSkus = n
 
   return atRisk;
 }
+
+
+// ── Orders waiting on items that just became sellable ────────────────────
+//
+// Counterpart to findAtRiskOrders(). For every SKU that just flipped
+// DENY -> CONTINUE, find open orders that still owe a customer that item:
+// not cancelled, not fully refunded, and with units that have not shipped
+// (fulfillableQuantity > 0 also excludes units already fulfilled or
+// refunded/removed at the line-item level, so partially-shipped and
+// partially-refunded orders only report what is genuinely still owed).
+//
+// Same as findAtRiskOrders(): any (Order Name, SKU) pair already present in
+// the Order Needs tracker (lockedOrderSkus) is skipped, since that unit is
+// already locked into a supplier order and doesn't need flagging.
+//
+// `gql` is injectable only so the logic can be tested without Shopify.
+export async function findOrdersForNewlyContinueSkus(token, flippedToContinue, lockedOrderSkus = new Set(), { gql = graphql } = {}) {
+  const results = [];
+
+  // One lookup per distinct SKU, even if a SKU appears twice in the change list.
+  const bySku = new Map();
+  for (const change of flippedToContinue) {
+    const sku = (change.sku || "").trim();
+    if (sku && !bySku.has(sku)) bySku.set(sku, change);
+  }
+
+  const query = `
+    query($q: String!) {
+      orders(first: 20, query: $q) {
+        edges {
+          node {
+            id
+            legacyResourceId
+            name
+            createdAt
+            customer { displayName }
+            lineItems(first: 50) {
+              edges { node { sku title quantity fulfillableQuantity } }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  for (const [sku, change] of bySku) {
+    const searchQuery =
+      `sku:${sku} AND -status:cancelled AND -financial_status:refunded ` +
+      `AND (fulfillment_status:unfulfilled OR fulfillment_status:partial)`;
+
+    let data;
+    try {
+      data = await gql(token, query, { q: searchQuery });
+    } catch (err) {
+      console.warn(`  WARNING: order lookup failed for ${sku}: ${err.message}`);
+      continue;
+    }
+
+    for (const edge of data.orders.edges) {
+      const order = edge.node;
+
+      // Already locked into a supplier order — already ordered, don't flag.
+      if (lockedOrderSkus.has(`${order.name}|${sku}`)) continue;
+
+      // Search is fuzzy; confirm the exact SKU and that units are still owed.
+      const matching = order.lineItems.edges
+        .map((li) => li.node)
+        .filter((li) => li.sku === sku && li.fulfillableQuantity > 0);
+
+      if (matching.length > 0) {
+        results.push({
+          orderName: order.name,
+          orderId: order.legacyResourceId,
+          customer: order.customer ? order.customer.displayName : "(no customer)",
+          createdAt: order.createdAt,
+          sku,
+          title: change.title || matching[0].title,
+          qty: matching.reduce((sum, li) => sum + li.fulfillableQuantity, 0),
+        });
+      }
+    }
+
+    await new Promise((r) => setTimeout(r, 100)); // light pacing; graphql() also retries on throttle
+  }
+
+  return results;
+}
